@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SN</title>
+    <title>SN - Sindical News AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
@@ -11,7 +11,7 @@
       .ticker-wrap {
         width: 100%;
         overflow: hidden;
-        background-color: #7f1d1d; /* red-900 */
+        background-color: #7f1d1d;
         color: white;
         white-space: nowrap;
       }
@@ -24,20 +24,9 @@
         100% { transform: translateX(-100%); }
       }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react/": "https://aistudiocdn.com/react@^19.2.1/",
-    "react": "https://aistudiocdn.com/react@^19.2.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
-    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.86.2"
-  }
-}
-</script>
-</head>
+  </head>
   <body class="bg-neutral-950 text-neutral-200 selection:bg-red-700 selection:text-white">
     <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>

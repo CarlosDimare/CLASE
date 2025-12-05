@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import PublicView from './components/PublicView';
-import EditorView from './components/EditorView';
 import EconomicTicker from './components/EconomicTicker';
-import { ViewMode, SindicatoData, NewsItem } from './types';
-import { Newspaper, PenTool, Radio, Loader2, AlertCircle, Server, Flame } from 'lucide-react';
-import { fetchUnionsFromFirebase, saveUnionToFirebase, deleteUnionFromFirebase } from './services/firebaseService';
+import DateTimeTemp from './components/DateTimeTemp';
+import { SindicatoData, NewsItem } from './types';
+import { Radio, Loader2, AlertCircle } from 'lucide-react';
+import { fetchUnionsFromFirebase } from './services/firebaseService';
 
 const SOURCES = [
   { name: 'InfoGremiales', url: 'https://www.infogremiales.com.ar/feed/' },
@@ -13,7 +13,6 @@ const SOURCES = [
 ];
 
 const App: React.FC = () => {
-  const [view, setView] = useState<ViewMode>('editor');
   const [unions, setUnions] = useState<SindicatoData[]>([]);
   const [dbLoading, setDbLoading] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null);
@@ -82,72 +81,21 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSaveUnion = async (data: SindicatoData) => {
-    // Optimistic Update
-    setUnions(prev => {
-      const idx = prev.findIndex(u => u.slug === data.slug);
-      if (idx >= 0) {
-        const newUnions = [...prev];
-        newUnions[idx] = data;
-        return newUnions;
-      }
-      return [data, ...prev];
-    });
-
-    try {
-      await saveUnionToFirebase(data);
-      // alert(`Datos de ${data.nombre} guardados correctamente.`);
-    } catch (err: any) {
-      console.error("Save Error:", err);
-      alert("Error al guardar en Firebase: " + err.message);
-      loadData(); // Revert to server state on error
-    }
-  };
-
-  const handleDeleteUnion = async (slug: string) => {
-    if (confirm('¿Está seguro de eliminar este registro de la base de datos?')) {
-      // Optimistic delete
-      setUnions(prev => prev.filter(u => u.slug !== slug));
-
-      try {
-        await deleteUnionFromFirebase(slug);
-      } catch (err: any) {
-        console.error("Delete Error:", err);
-        alert("Error al eliminar de Firebase: " + err.message);
-        loadData(); // Revert
-      }
-    }
-  };
-
   return (
     <div className="min-h-screen flex flex-col bg-neutral-950 text-neutral-200">
       {/* Navbar */}
       <nav className="bg-neutral-900 border-b border-neutral-800 sticky top-0 z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3 font-black text-2xl text-white tracking-tighter uppercase">
-            <div className="bg-red-700 text-white p-1.5 shadow-lg shadow-red-900/50">
-              <Radio className="w-5 h-5" />
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3 font-black text-2xl text-white tracking-tighter uppercase">
+              <div className="bg-red-700 text-white p-1.5 shadow-lg shadow-red-900/50">
+                <Radio className="w-5 h-5" />
+              </div>
+              <span>S<span className="text-red-600">N</span></span>
             </div>
-            <span>S<span className="text-red-600">N</span></span>
-          </div>
-          
-          <div className="flex bg-neutral-950 p-1 border border-neutral-800">
-            <button
-              onClick={() => setView('public')}
-              className={`px-4 py-2 text-xs md:text-sm font-bold uppercase tracking-wider transition-all flex items-center gap-2 ${
-                view === 'public' ? 'bg-white text-neutral-900' : 'text-neutral-500 hover:text-white'
-              }`}
-            >
-              <Newspaper className="w-4 h-4" /> <span className="hidden md:inline">Frente Público</span>
-            </button>
-            <button
-              onClick={() => setView('editor')}
-              className={`px-4 py-2 text-xs md:text-sm font-bold uppercase tracking-wider transition-all flex items-center gap-2 ${
-                view === 'editor' ? 'bg-red-600 text-white shadow-red-900/50 shadow-md' : 'text-neutral-500 hover:text-white'
-              }`}
-            >
-              <PenTool className="w-4 h-4" /> <span className="hidden md:inline">Sala de Situación</span>
-            </button>
+            
+            {/* Fecha, Hora y Temperatura */}
+            <DateTimeTemp />
           </div>
         </div>
       </nav>
@@ -179,7 +127,7 @@ const App: React.FC = () => {
           </div>
         )}
         
-        {!dbLoading && !dbError && view === 'public' && (
+        {!dbLoading && !dbError && (
           <PublicView 
             unions={unions} 
             news={news} 
@@ -188,37 +136,7 @@ const App: React.FC = () => {
             onRefreshNews={fetchNews}
           />
         )}
-        
-        {!dbLoading && !dbError && view === 'editor' && (
-          <EditorView 
-            existingUnions={unions} 
-            onSave={handleSaveUnion} 
-            onDelete={handleDeleteUnion}
-            news={news}
-          />
-        )}
       </main>
-
-      {/* Footer */}
-      <footer className="bg-neutral-900 border-t border-neutral-800 py-6 mt-auto">
-        <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center text-neutral-500 text-xs font-mono uppercase">
-          <div className="flex flex-col md:flex-row gap-4 md:items-center">
-            <div className="flex items-center gap-2 text-orange-500">
-                <Flame className="w-3 h-3" />
-                <span>ONLINE: FIREBASE RTDB</span>
-            </div>
-            <div className="flex items-center gap-2 text-neutral-600">
-                <Server className="w-3 h-3" />
-                <span title="Firebase">project-306405...</span>
-            </div>
-          </div>
-          <div className="mt-2 md:mt-0 flex gap-4 font-bold text-neutral-600">
-             <span>Unidad</span>
-             <span>Solidaridad</span>
-             <span>Lucha</span>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 };

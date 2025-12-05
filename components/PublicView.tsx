@@ -39,12 +39,20 @@ const PublicView: React.FC<PublicViewProps> = ({ unions, news, newsLoading, news
   const allActions = getAllActions();
 
   // Filter Global Lists
+  const currentDate = new Date('2025-12-05T19:22:20.000Z'); // Usar fecha actual como referencia
+  
   const upcomingActions = allActions
-    .filter(item => item.action.estado === 'programada')
+    .filter(item => {
+      const actionDate = new Date(item.action.fecha);
+      return item.action.estado === 'programada' && actionDate >= currentDate;
+    })
     .sort((a, b) => new Date(a.action.fecha).getTime() - new Date(b.action.fecha).getTime());
 
   const pastActions = allActions
-    .filter(item => item.action.estado !== 'programada')
+    .filter(item => {
+      const actionDate = new Date(item.action.fecha);
+      return item.action.estado !== 'programada' || actionDate < currentDate;
+    })
     .sort((a, b) => new Date(b.action.fecha).getTime() - new Date(a.action.fecha).getTime())
     .slice(0, 20); // Limit display for past actions
 
@@ -270,10 +278,6 @@ const PublicView: React.FC<PublicViewProps> = ({ unions, news, newsLoading, news
   // --- RENDER MAIN DASHBOARD VIEW ---
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="mb-8 border-b-4 border-red-600 pb-6">
-        <h1 className="text-4xl md:text-5xl font-black text-white mb-2 uppercase tracking-tighter">Frente Sindical</h1>
-        <p className="text-neutral-400 text-lg font-mono">Plataforma unificada de información para la clase trabajadora.</p>
-      </div>
 
       {/* 3 MAIN SECTIONS NAV */}
       <div className="flex flex-col md:flex-row gap-4 mb-10 border-b border-neutral-800 pb-1">

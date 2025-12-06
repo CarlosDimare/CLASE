@@ -1,24 +1,26 @@
 import { GoogleGenAI } from "@google/genai";
 import { SindicatoData, AccionGremial, AcuerdoParitario, NewsItem } from "../types";
 
-const SYSTEM_INSTRUCTION = `
-Eres un analista de inteligencia gremial. Tu objetivo es investigar y estructurar información sobre un sindicato específico para una base de datos de acción sindical.
+// PROMPT PARA INVESTIGACIÓN INICIAL (SOLO INSTITUCIONAL + PARITARIAS)
+const SYSTEM_INSTRUCTION_INIT = `
+Eres un analista de inteligencia gremial. Tu objetivo es investigar y estructurar información estática sobre un sindicato.
 
 DEBES devolver SOLAMENTE un objeto JSON válido.
-NO incluyas markdown (bloques de código \`\`\`json), ni texto introductorio como "Aquí está el JSON".
-Empieza el mensaje directamente con la llave de apertura "{".
+NO incluyas markdown. Empieza directamente con "{".
 
-CAMBIOS IMPORTANTES EN LA BÚSQUEDA:
-1. NO busques "noticias" genéricas. Busca "ACCIONES GREMIALES" específicas.
-2. Una ACCIÓN es: una Huelga, Movilización, Asamblea, Reunión con autoridades, Denuncia pública o Comunicado oficial de conflicto.
-3. Clasifica cada acción como "realizada" (pasada) o "programada" (futura).
-4. Busca el ÚLTIMO acuerdo paritario firmado (Salarios).
+OBJETIVOS DE BÚSQUEDA:
+1. Nombre oficial y SIGLAS (Slug).
+2. Comisión Directiva (Secretario General y adjuntos clave).
+3. Datos de contacto (Sede, Web).
+4. ÚLTIMA PARITARIA O ACUERDO SALARIAL VIGENTE.
+5. IMPORTANTE: NO BUSQUES ACCIONES GREMIALES (Huelgas, marchas, etc). El campo "acciones" debe ir vacío.
 
-El JSON debe seguir EXACTAMENTE esta estructura:
+La fecha actual es ${new Date().toISOString().split('T')[0]}.
 
+ESTRUCTURA JSON REQUERIDA:
 {
   "nombre": "Nombre Completo Sindicato",
-  "slug": "acronimo-minusculas",
+  "slug": "siglas-minusculas",
   "comisionDirectiva": [
     { "nombre": "Nombre", "cargo": "Cargo" }
   ],
@@ -26,28 +28,9 @@ El JSON debe seguir EXACTAMENTE esta estructura:
     "sedePrincipal": "Dirección",
     "sitioWeb": "URL"
   },
-  "acciones": {
-    "UUID_GENERADO_1": {
-      "titulo": "Ej: Paro Nacional por 24hs",
-      "tipo": "medida-fuerza", 
-      "fecha": "YYYY-MM-DD",
-      "lugar": "Ciudad o Dirección",
-      "fuente": "URL OBLIGATORIA",
-      "estado": "programada",
-      "descripcion": "Breve descripción del motivo"
-    },
-    "UUID_GENERADO_2": {
-      "titulo": "Ej: Acuerdo con Cámaras Empresariales",
-      "tipo": "reunion",
-      "fecha": "YYYY-MM-DD",
-      "lugar": "Ministerio de Trabajo",
-      "fuente": "URL OBLIGATORIA",
-      "estado": "realizada",
-      "descripcion": "Resumen del resultado"
-    }
-  },
+  "acciones": {},
   "paritarias": {
-    "UUID_GENERADO_3": {
+    "UUID_GENERADO_1": {
       "periodo": "2024-2025",
       "porcentajeAumento": "Ej: 15%",
       "fechaFirma": "YYYY-MM-DD",
@@ -56,8 +39,6 @@ El JSON debe seguir EXACTAMENTE esta estructura:
     }
   }
 }
-
-Valores válidos para "tipo" de acción: "medida-fuerza", "asamblea", "reunion", "denuncia", "movilizacion", "otro".
 `;
 
 // Helper to clean JSON
@@ -69,10 +50,6 @@ const cleanAndParseJson = (text: string): any => {
     jsonString = jsonString.replace(/```/g, '');
     
     // Find the first { (or [ for arrays) and last } (or ])
-    const firstOpen = jsonString.search(/[{[]/);
-    const lastClose = jsonString.search(/[}\]]$/); // Simple search from end is tricky with regex, doing manual substring
-    
-    // Better simple extraction:
     const firstCurly = jsonString.indexOf('{');
     const firstSquare = jsonString.indexOf('[');
     
@@ -84,9 +61,7 @@ const cleanAndParseJson = (text: string): any => {
     }
 
     if (startIdx !== -1) {
-         // Naive extraction till end, usually works if Gemini follows instruction
         jsonString = jsonString.substring(startIdx);
-        // Clean trailing chars if any
         const lastCurly = jsonString.lastIndexOf('}');
         const lastSquare = jsonString.lastIndexOf(']');
         const endIdx = Math.max(lastCurly, lastSquare);
@@ -114,16 +89,17 @@ export const generarContenidoSindical = async (sindicatoNombre: string): Promise
     const model = 'gemini-2.5-flash'; 
     
     const prompt = `Investiga al sindicato "${sindicatoNombre}". 
-    1. Obtén su comisión directiva y datos básicos.
-    2. Busca sus últimas ACCIONES GREMIALES (conflictos, paros, asambleas) y PRÓXIMAS acciones. Mínimo 4 acciones en total.
-    3. Busca su última paritaria firmada.
-    Genera UUIDs aleatorios para las claves del objeto acciones y paritarias. Asegúrate de devolver JSON puro.`;
+    1. Obtén su comisión directiva actualizada.
+    2. Consigue la dirección de su sede central y sitio web.
+    3. Busca su última paritaria salarial firmada (porcentajes y fecha).
+    4. NO generes acciones gremiales, deja ese objeto vacío.
+    Genera UUIDs aleatorios para las claves de paritarias.`;
 
     const response = await ai.models.generateContent({
       model: model,
       contents: prompt,
       config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
+        systemInstruction: SYSTEM_INSTRUCTION_INIT,
         tools: [{ googleSearch: {} }],
       },
     });
@@ -156,111 +132,97 @@ export const analizarFuenteExterna = async (url: string): Promise<UrlAnalysisRes
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const systemPrompt = `
-    Analiza el contenido del enlace proporcionado. Tu tarea es extraer información sindical estructurada para actualizar la Base de Datos.
+    Analiza el contenido del enlace proporcionado. Extrae información sindical estructurada.
     
     INSTRUCCIONES:
-    1. Identifica qué Sindicato es el protagonista. Normaliza el nombre y crea un slug (siglas minúsculas).
-    2. Determina si el enlace habla de una ACCIÓN GREMIAL (huelga, marcha, reunión, estado de alerta), una PARITARIA (acuerdo salarial) o es info general.
-    3. IMPORTANTE: El campo "fuente" o "enlaceFuente" DEBE ser exactamente: "${url}".
+    1. Identifica el Sindicato. Normaliza el nombre y crea un slug.
+    2. Determina si es ACCIÓN GREMIAL (medida de fuerza, asamblea, marcha) o PARITARIA.
+    3. El campo "fuente" DEBE ser: "${url}".
+    4. Fecha actual: ${new Date().toISOString().split('T')[0]}.
     
-    FORMATO DE RESPUESTA JSON:
-    
+    FORMATO JSON:
     {
-        "sindicatoMatch": { "nombre": "Nombre Sindicato", "slug": "slug-sindicato" },
+        "sindicatoMatch": { "nombre": "Nombre", "slug": "slug" },
         "tipoDetectado": "accion" | "paritaria",
-        "data": { ...OBJETO... }
-    }
-
-    Si es "accion", el objeto "data" debe tener esta estructura:
-    {
-       "titulo": "Título descriptivo de la acción",
-       "tipo": "medida-fuerza" | "asamblea" | "reunion" | "denuncia" | "movilizacion" | "otro",
-       "fecha": "YYYY-MM-DD",
-       "lugar": "Lugar específico",
-       "fuente": "${url}",
-       "estado": "realizada" | "programada",
-       "descripcion": "Resumen claro de 2 oraciones."
-    }
-
-    Si es "paritaria", el objeto "data" debe tener esta estructura:
-    {
-       "periodo": "Ej: 2024-2025",
-       "porcentajeAumento": "Ej: 15% bimestral",
-       "fechaFirma": "YYYY-MM-DD",
-       "detalleTexto": "Detalle de los tramos y condiciones.",
-       "enlaceFuente": "${url}"
+        "data": { ... } // Estructura AccionGremial o AcuerdoParitario
     }
     `;
 
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: `Analiza este enlace y extrae los datos: ${url}`,
+            contents: `Analiza este enlace: ${url}`,
             config: {
                 systemInstruction: systemPrompt,
-                tools: [{ googleSearch: {} }] // Allows the model to 'read' the page content via search index if needed
+                tools: [{ googleSearch: {} }] 
             }
         });
 
         const text = response.text || "{}";
         const result = cleanAndParseJson(text);
         
-        // Basic validation
         if (!result.sindicatoMatch || !result.data) {
-             throw new Error("No se pudieron identificar los datos del sindicato en este enlace.");
+             throw new Error("Datos no identificados.");
         }
 
         return result;
 
     } catch (error) {
         console.error("Error analyzing URL:", error);
-        throw new Error("No se pudo analizar el enlace. Verifique que sea accesible y contenga información sindical.");
+        throw new Error("No se pudo analizar el enlace.");
     }
 };
 
-// Nueva función para procesar múltiples noticias
+// --- PROCESAMIENTO MASIVO DE NOTICIAS (FEED) ---
 export const analizarNoticiasMasivas = async (noticias: NewsItem[]): Promise<UrlAnalysisResult[]> => {
     if (!process.env.API_KEY) {
         throw new Error("API Key not found");
     }
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-    // Limitamos el contexto para no exceder tokens o confundir al modelo con ruido
-    const cables = noticias.slice(0, 15).map((n, i) => `ID_${i}: ${n.title} - ${n.description} (Link: ${n.link})`).join('\n\n');
+    // Limitamos a 20 noticias para contexto
+    const cables = noticias.slice(0, 20).map((n, i) => `[ID_${i}] Fecha: ${n.pubDate} | Título: ${n.title} | Desc: ${n.description} | Link: ${n.link}`).join('\n\n');
+    const today = new Date().toISOString().split('T')[0];
 
     const systemPrompt = `
-    Eres un motor de inteligencia que procesa cables de noticias sindicales.
-    Recibirás una lista de noticias.
+    Eres un motor de inteligencia gremial. Procesas cables de noticias y detectas acciones concretas.
+    Fecha de hoy: ${today}.
+
+    INSTRUCCIONES CRÍTICAS:
+    1. **FILTRADO:** Ignora noticias de opinión, política general o internas irrelevantes. Solo procesa: Paros, Movilizaciones, Asambleas, Acuerdos Salariales (Paritarias) o Denuncias graves.
     
-    TU TAREA:
-    1. Filtra las noticias irrelevantes o de opinión general. QUEDATE SOLO con las que informan sobre:
-       - Medidas de fuerza concretas (Paros, Marchas).
-       - Acuerdos Paritarios (Firmas salariales).
-       - Elecciones sindicales o Conflictos graves.
-    
-    2. Para cada noticia RELEVANTE, genera un objeto estructurado igual al formato de "UrlAnalysisResult".
-    3. Devuelve UN ARRAY JSON de estos objetos.
-    
-    FORMATO DE CADA ITEM DEL ARRAY:
-    {
-        "sindicatoMatch": { "nombre": "Nombre Sindicato", "slug": "slug-sindicato" },
+    2. **DESDOBLAMIENTO TEMPORAL (ANUNCIO vs EJECUCIÓN):**
+       - Si una noticia dice: "Gremio X anuncia Paro para el 9 de diciembre".
+       - DEBES generar, si es posible, la ACCIÓN FUTURA.
+       - Si la noticia es HOY anunciando algo FUTURO, prioriza la acción futura.
+       - Si la noticia es sobre una marcha que YA ocurrió, regístrala con la fecha pasada.
+
+    3. **FECHAS:** Calcula fechas relativas ("el próximo jueves") basándote en la fecha de la noticia o la fecha de hoy (${today}). NUNCA dejes fecha vacía.
+
+    4. **FORMATO JSON (Array):**
+    [
+      {
+        "sindicatoMatch": { "nombre": "Nombre", "slug": "slug" },
         "tipoDetectado": "accion" | "paritaria",
-        "data": { ...Datos de Acción o Paritaria... }
-    }
-    
-    IMPORTANTE:
-    - Asegúrate de asignar el LINK correcto de la noticia al campo "fuente" o "enlaceFuente".
-    - Si la fecha no es explícita, usa la fecha actual o "A confirmar".
-    - Si no encuentras ninguna relevante, devuelve un array vacío [].
+        "data": { 
+           "titulo": "Título de la Acción (Ej: Paro Nacional 24hs)", 
+           "tipo": "medida-fuerza" | "asamblea" | "movilizacion" | "reunion", 
+           "fecha": "YYYY-MM-DD", 
+           "lugar": "Ciudad / Lugar", 
+           "fuente": "URL original", 
+           "descripcion": "Resumen del evento."
+        }
+      }
+    ]
     `;
 
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: `Analiza estos cables:\n${cables}`,
+            contents: `Analiza estos cables y extrae acciones:\n${cables}`,
             config: {
                 systemInstruction: systemPrompt,
-                // No necesitamos googleSearch aquí porque la info ya está en el texto del prompt (títulos y descripciones)
+                // No search tools needed, context is provided
             }
         });
 
@@ -268,7 +230,6 @@ export const analizarNoticiasMasivas = async (noticias: NewsItem[]): Promise<Url
         const results = cleanAndParseJson(text);
 
         if (!Array.isArray(results)) {
-            console.warn("AI did not return an array", results);
             return [];
         }
 
@@ -276,6 +237,6 @@ export const analizarNoticiasMasivas = async (noticias: NewsItem[]): Promise<Url
 
     } catch (error) {
         console.error("Error analyzing news batch:", error);
-        throw new Error("Error al procesar el lote de noticias.");
+        throw new Error("Error al procesar cables.");
     }
 };

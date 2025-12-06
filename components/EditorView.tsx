@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { generarContenidoSindical, analizarFuenteExterna, analizarNoticiasMasivas, UrlAnalysisResult } from '../services/geminiService';
-import { SindicatoData, AccionGremial, AcuerdoParitario, NewsItem } from '../types';
-import { Bot, Loader2, Save, Trash2, Plus, Search, AlertTriangle, Link, ArrowRight, FileJson, Radio, CheckCircle, XCircle } from 'lucide-react';
+import { SindicatoData, AccionGremial, AcuerdoParitario, NewsItem, ComisionMiembro } from '../types';
+import { Bot, Loader2, Save, Trash2, Plus, Search, AlertTriangle, Link, FileJson, Radio, CheckCircle, XCircle, User, UserPlus, X } from 'lucide-react';
 
 interface EditorViewProps {
   existingUnions: SindicatoData[];
@@ -39,6 +39,9 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
   // Editor State
   const [editableData, setEditableData] = useState<SindicatoData | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Delete Modal State (Custom implementation to avoid window.confirm blocking)
+  const [deleteTarget, setDeleteTarget] = useState<{slug: string, name: string} | null>(null);
 
   // 1. Generate full new data with AI
   const handleGenerate = async () => {
@@ -155,6 +158,22 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
     }
   };
 
+  // Borrar sindicato completo (Trigger Modal)
+  const handleDeleteTrigger = (slug: string, name: string) => {
+      setDeleteTarget({ slug, name });
+  }
+
+  const confirmDelete = () => {
+      if (deleteTarget) {
+          onDelete(deleteTarget.slug);
+          // Si estábamos editando el que borramos, limpiar editor
+          if (editableData && editableData.slug === deleteTarget.slug) {
+              setEditableData(null);
+          }
+          setDeleteTarget(null);
+      }
+  }
+
   // Select an existing union to edit
   const handleSelectExisting = (union: SindicatoData) => {
     setEditableData(JSON.parse(JSON.stringify(union)));
@@ -188,8 +207,12 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
     setEditableData(newData);
   };
 
-  const removeAccion = (uuid: string) => {
+  // --- ACTIONS MANAGEMENT (SIN CONFIRMACIÓN PARA RAPIDEZ) ---
+  const removeAccion = (e: React.MouseEvent, uuid: string) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!editableData) return;
+    // Eliminación directa del estado local (si te equivocas, no guardas)
     const newAcciones = { ...editableData.acciones };
     delete newAcciones[uuid];
     setEditableData({ ...editableData, acciones: newAcciones });
@@ -204,7 +227,6 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
         fecha: new Date().toISOString().split('T')[0],
         lugar: "A definir",
         fuente: "",
-        estado: "programada",
         descripcion: ""
     };
     setEditableData({
@@ -213,11 +235,57 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
     });
   };
 
-  const removeParitaria = (uuid: string) => {
+  // --- PARITARIAS MANAGEMENT (SIN CONFIRMACIÓN) ---
+  const removeParitaria = (e: React.MouseEvent, uuid: string) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!editableData) return;
     const newParitarias = { ...editableData.paritarias };
     delete newParitarias[uuid];
     setEditableData({ ...editableData, paritarias: newParitarias });
+  };
+
+  const addEmptyParitaria = () => {
+      if (!editableData) return;
+      const uuid = generateUUID();
+      const newParitaria: AcuerdoParitario = {
+          periodo: new Date().getFullYear().toString(),
+          porcentajeAumento: "0%",
+          fechaFirma: new Date().toISOString().split('T')[0],
+          detalleTexto: "",
+          enlaceFuente: ""
+      };
+      setEditableData({
+          ...editableData,
+          paritarias: { ...editableData.paritarias, [uuid]: newParitaria}
+      });
+  }
+
+  // --- COMISION DIRECTIVA MANAGEMENT (SIN CONFIRMACIÓN) ---
+  const addMember = () => {
+      if (!editableData) return;
+      const newMember: ComisionMiembro = { nombre: '', cargo: '' };
+      setEditableData({
+          ...editableData,
+          comisionDirectiva: [...(editableData.comisionDirectiva || []), newMember]
+      });
+  };
+
+  const removeMember = (e: React.MouseEvent, index: number) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!editableData) return;
+      const current = editableData.comisionDirectiva || [];
+      const newMembers = [...current];
+      newMembers.splice(index, 1);
+      setEditableData({ ...editableData, comisionDirectiva: newMembers });
+  };
+
+  const updateMember = (index: number, field: keyof ComisionMiembro, value: string) => {
+      if (!editableData) return;
+      const newMembers = [...editableData.comisionDirectiva];
+      newMembers[index] = { ...newMembers[index], [field]: value };
+      setEditableData({ ...editableData, comisionDirectiva: newMembers });
   };
 
   const filteredUnions = existingUnions.filter(u => 
@@ -226,8 +294,39 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
   );
 
   return (
-    <div className="flex flex-col md:flex-row min-h-[calc(100vh-100px)]">
+    <div className="flex flex-col md:flex-row min-h-[calc(100vh-100px)] relative">
       
+      {/* DELETE MODAL OVERLAY */}
+      {deleteTarget && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+              <div className="bg-neutral-900 border-2 border-red-600 p-6 max-w-md w-full shadow-2xl relative animate-in zoom-in-95 duration-200">
+                  <h3 className="text-xl font-black text-white uppercase mb-2 flex items-center gap-2">
+                      <AlertTriangle className="w-6 h-6 text-red-600" /> Confirmar Eliminación
+                  </h3>
+                  <p className="text-neutral-400 mb-6 text-sm">
+                      ¿Está seguro de eliminar a <span className="text-white font-bold">{deleteTarget.name}</span>? 
+                      <br/>Esta acción eliminará todos los datos de la base de datos permanentemente.
+                  </p>
+                  <div className="flex gap-3 justify-end">
+                      <button 
+                          type="button"
+                          onClick={() => setDeleteTarget(null)}
+                          className="px-4 py-2 bg-neutral-800 text-white font-bold uppercase text-xs hover:bg-neutral-700 transition-colors"
+                      >
+                          Cancelar
+                      </button>
+                      <button 
+                          type="button"
+                          onClick={confirmDelete}
+                          className="px-4 py-2 bg-red-600 text-white font-bold uppercase text-xs hover:bg-red-700 shadow-lg shadow-red-900/50 transition-colors flex items-center gap-2"
+                      >
+                          <Trash2 className="w-3 h-3" /> Sí, Eliminar
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* Sidebar: Existing Database */}
       <aside className="w-full md:w-80 bg-neutral-900 border-r border-neutral-800 p-4 flex flex-col">
         <div className="mb-4">
@@ -250,8 +349,14 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
                         <span className="text-red-600 font-bold text-xs uppercase tracking-wider">{union.slug}</span>
                         <div className="flex gap-2">
                              <button 
-                                onClick={(e) => { e.stopPropagation(); onDelete(union.slug); }}
-                                className="text-neutral-600 hover:text-red-500"
+                                type="button"
+                                onClick={(e) => { 
+                                    e.preventDefault(); 
+                                    e.stopPropagation(); 
+                                    handleDeleteTrigger(union.slug, union.nombre);
+                                }}
+                                className="text-neutral-600 hover:text-red-500 p-1"
+                                title="Eliminar Sindicato"
                              >
                                 <Trash2 className="w-3 h-3" />
                              </button>
@@ -266,6 +371,7 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
         </div>
 
         <button 
+            type="button"
             onClick={handleDownloadDb}
             className="mt-auto w-full flex items-center justify-center gap-2 bg-green-900/50 hover:bg-green-800 text-green-300 text-xs font-bold py-3 uppercase border border-green-800 transition-all"
         >
@@ -295,6 +401,7 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
                         onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
                     />
                     <button
+                        type="button"
                         onClick={handleGenerate}
                         disabled={loading || !inputName.trim()}
                         className="bg-red-700 text-white px-4 py-2 font-black uppercase tracking-wider hover:bg-red-600 disabled:opacity-50 flex items-center justify-center gap-2 transition-all text-xs h-10"
@@ -323,6 +430,7 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
                         />
                      </div>
                     <button
+                        type="button"
                         onClick={handleUrlAnalysis}
                         disabled={analyzingUrl || !inputUrl.trim()}
                         className="bg-blue-700 text-white px-4 py-2 font-black uppercase tracking-wider hover:bg-blue-600 disabled:opacity-50 flex items-center justify-center gap-2 transition-all text-xs h-10"
@@ -344,6 +452,7 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
                         {news.length} cables disponibles en feed.
                     </p>
                     <button
+                        type="button"
                         onClick={handleProcessCables}
                         disabled={analyzingBatch || news.length === 0}
                         className="bg-purple-700 text-white px-4 py-2 font-black uppercase tracking-wider hover:bg-purple-600 disabled:opacity-50 flex items-center justify-center gap-2 transition-all text-xs h-10 shadow-lg shadow-purple-900/20"
@@ -389,12 +498,14 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
                             </h4>
                             <div className="flex gap-2 mt-4">
                                 <button 
+                                    type="button"
                                     onClick={() => handleAcceptSuggestion(result)}
                                     className="flex-1 bg-purple-700 hover:bg-purple-600 text-white text-xs font-bold py-2 uppercase flex items-center justify-center gap-2"
                                 >
                                     <CheckCircle className="w-3 h-3" /> Procesar
                                 </button>
                                 <button 
+                                    type="button"
                                     onClick={() => setBatchResults(prev => prev.filter((_, i) => i !== idx))}
                                     className="bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white px-3 py-2"
                                 >
@@ -418,17 +529,28 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
                         <h2 className="text-2xl font-black text-white uppercase leading-none">{editableData.nombre}</h2>
                     </div>
                     <div className="flex gap-2">
+                         {existingUnions.find(u => u.slug === editableData.slug) && (
+                             <button
+                                type="button"
+                                onClick={() => handleDeleteTrigger(editableData.slug, editableData.nombre)}
+                                className="bg-red-900/20 hover:bg-red-900/40 text-red-500 px-4 py-3 font-bold uppercase text-xs tracking-wider transition-all border border-red-900/30 flex items-center gap-2"
+                             >
+                                <Trash2 className="w-4 h-4" /> <span className="hidden lg:inline">Eliminar Sindicato</span>
+                            </button>
+                         )}
                         <button
+                            type="button"
                             onClick={() => setEditableData(null)}
                             className="bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white px-4 py-3 font-bold uppercase text-xs tracking-wider transition-all"
                         >
                             Cancelar
                         </button>
                         <button
+                            type="button"
                             onClick={handleApprove}
                             className="bg-green-700 hover:bg-green-600 text-white px-6 py-3 font-bold uppercase shadow-lg shadow-green-900/20 flex items-center gap-2 text-sm tracking-wider transition-all"
                         >
-                            <Save className="w-4 h-4" /> Guardar en Base
+                            <Save className="w-4 h-4" /> Guardar
                         </button>
                     </div>
                 </div>
@@ -457,25 +579,79 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
                         </div>
                     </div>
 
-                    {/* Sección 2: Acciones Gremiales (Unified) */}
+                    {/* Sección 2: Comisión Directiva */}
+                    <div className="bg-neutral-900 p-6 border border-neutral-800">
+                         <div className="flex justify-between items-center border-b border-neutral-800 pb-2 mb-4">
+                            <h3 className="text-blue-500 font-bold uppercase text-xs tracking-widest flex items-center gap-2">
+                                <User className="w-4 h-4" /> Comisión Directiva
+                            </h3>
+                            <button type="button" onClick={addMember} className="text-xs bg-neutral-800 hover:bg-neutral-700 text-white px-3 py-1 uppercase font-bold flex items-center gap-1">
+                                <UserPlus className="w-3 h-3" /> Agregar
+                            </button>
+                        </div>
+                        <div className="grid md:grid-cols-2 gap-4">
+                            {editableData.comisionDirectiva?.map((miembro, idx) => (
+                                <div key={idx} className="bg-neutral-950 p-3 border border-neutral-800 flex gap-2 items-end group">
+                                    <div className="flex-1">
+                                        <label className="label-helper">Nombre</label>
+                                        <input 
+                                            className="input-dark" 
+                                            value={miembro.nombre} 
+                                            onChange={(e) => updateMember(idx, 'nombre', e.target.value)} 
+                                            placeholder="Nombre completo"
+                                        />
+                                    </div>
+                                    <div className="flex-1">
+                                        <label className="label-helper">Cargo</label>
+                                        <input 
+                                            className="input-dark" 
+                                            value={miembro.cargo} 
+                                            onChange={(e) => updateMember(idx, 'cargo', e.target.value)} 
+                                            placeholder="Cargo"
+                                        />
+                                    </div>
+                                    <button 
+                                        type="button"
+                                        onClick={(e) => removeMember(e, idx)}
+                                        className="bg-neutral-800 hover:bg-red-900 text-neutral-500 hover:text-red-500 p-2 h-[38px] w-[38px] flex items-center justify-center transition-colors cursor-pointer z-10"
+                                        title="Eliminar miembro"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            ))}
+                            {(!editableData.comisionDirectiva || editableData.comisionDirectiva.length === 0) && (
+                                <div className="col-span-2 text-center py-4 text-neutral-600 text-sm italic">
+                                    No hay miembros registrados en la comisión.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Sección 3: Acciones Gremiales */}
                     <div className="bg-neutral-900 p-6 border border-neutral-800">
                         <div className="flex justify-between items-center border-b border-neutral-800 pb-2 mb-4">
                             <h3 className="text-red-500 font-bold uppercase text-xs tracking-widest">
                                 Acciones Gremiales ({Object.keys(editableData.acciones).length})
                             </h3>
-                            <button onClick={addEmptyAccion} className="text-xs bg-neutral-800 hover:bg-neutral-700 text-white px-3 py-1 uppercase font-bold flex items-center gap-1">
+                            <button type="button" onClick={addEmptyAccion} className="text-xs bg-neutral-800 hover:bg-neutral-700 text-white px-3 py-1 uppercase font-bold flex items-center gap-1">
                                 <Plus className="w-3 h-3" /> Agregar
                             </button>
                         </div>
 
                         <div className="space-y-4">
                             {Object.entries(editableData.acciones).map(([uuid, accion]: [string, AccionGremial]) => (
-                                <div key={uuid} className={`bg-neutral-950 p-4 border relative group ${accion.estado === 'programada' ? 'border-l-4 border-l-red-600 border-y-neutral-800 border-r-neutral-800' : 'border-neutral-800'}`}>
-                                     <button onClick={() => removeAccion(uuid)} className="absolute top-2 right-2 text-neutral-600 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div key={uuid} className={`bg-neutral-900 p-4 border relative group ${accion.fecha >= new Date().toISOString().split('T')[0] ? 'border-l-4 border-l-red-600 border-y-neutral-800 border-r-neutral-800' : 'border-neutral-800'}`}>
+                                     <button 
+                                        type="button"
+                                        onClick={(e) => removeAccion(e, uuid)} 
+                                        className="absolute top-0 right-0 bg-neutral-800 text-neutral-500 hover:bg-red-700 hover:text-white p-2 transition-all z-20 cursor-pointer"
+                                        title="Eliminar Acción"
+                                     >
                                         <Trash2 className="w-4 h-4" />
                                     </button>
                                     
-                                    <div className="grid md:grid-cols-12 gap-4">
+                                    <div className="grid md:grid-cols-12 gap-4 mt-2">
                                         <div className="md:col-span-8">
                                             <label className="label-helper">Título Acción</label>
                                             <input className="input-dark font-bold text-white" value={accion.titulo} onChange={(e) => updateField(`acciones.${uuid}.titulo`, e.target.value)} />
@@ -484,15 +660,8 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
                                             <label className="label-helper">Fecha</label>
                                             <input type="date" className="input-dark" value={accion.fecha} onChange={(e) => updateField(`acciones.${uuid}.fecha`, e.target.value)} />
                                         </div>
-                                         <div className="md:col-span-2">
-                                            <label className="label-helper">Estado</label>
-                                            <select className="input-dark" value={accion.estado} onChange={(e) => updateField(`acciones.${uuid}.estado`, e.target.value)}>
-                                                <option value="programada">PROGRAMADA</option>
-                                                <option value="realizada">REALIZADA</option>
-                                            </select>
-                                        </div>
                                         
-                                        <div className="md:col-span-3">
+                                        <div className="md:col-span-2">
                                             <label className="label-helper">Tipo</label>
                                             <select className="input-dark uppercase" value={accion.tipo} onChange={(e) => updateField(`acciones.${uuid}.tipo`, e.target.value)}>
                                                 <option value="medida-fuerza">Medida de Fuerza</option>
@@ -507,7 +676,7 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
                                             <label className="label-helper">Lugar</label>
                                             <input className="input-dark" value={accion.lugar} onChange={(e) => updateField(`acciones.${uuid}.lugar`, e.target.value)} />
                                         </div>
-                                        <div className="md:col-span-4">
+                                        <div className="md:col-span-7">
                                             <label className="label-helper">Fuente (Link)</label>
                                             <input className="input-dark text-blue-400 text-xs" value={accion.fuente} onChange={(e) => updateField(`acciones.${uuid}.fuente`, e.target.value)} />
                                         </div>
@@ -523,16 +692,26 @@ const EditorView: React.FC<EditorViewProps> = ({ existingUnions, onSave, onDelet
                         </div>
                     </div>
 
-                    {/* Sección 3: Paritarias */}
+                    {/* Sección 4: Paritarias */}
                     <div className="bg-neutral-900 p-6 border border-neutral-800">
-                        <h3 className="text-green-600 font-bold uppercase text-xs mb-4 tracking-widest border-b border-neutral-800 pb-2">Paritarias (Salarios)</h3>
+                        <div className="flex justify-between items-center border-b border-neutral-800 pb-2 mb-4">
+                            <h3 className="text-green-600 font-bold uppercase text-xs tracking-widest">Paritarias (Salarios)</h3>
+                            <button type="button" onClick={addEmptyParitaria} className="text-xs bg-neutral-800 hover:bg-neutral-700 text-white px-3 py-1 uppercase font-bold flex items-center gap-1">
+                                <Plus className="w-3 h-3" /> Agregar
+                            </button>
+                        </div>
                         <div className="space-y-4">
                              {Object.entries(editableData.paritarias).map(([uuid, paritaria]: [string, AcuerdoParitario]) => (
                                 <div key={uuid} className="bg-neutral-950 p-4 border border-l-4 border-l-green-600 border-neutral-800 relative group">
-                                    <button onClick={() => removeParitaria(uuid)} className="absolute top-2 right-2 text-neutral-600 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                     <button 
+                                        type="button"
+                                        onClick={(e) => removeParitaria(e, uuid)} 
+                                        className="absolute top-0 right-0 bg-neutral-800 text-neutral-500 hover:bg-red-700 hover:text-white p-2 transition-all z-20 cursor-pointer"
+                                        title="Eliminar Paritaria"
+                                     >
                                         <Trash2 className="w-4 h-4" />
                                     </button>
-                                    <div className="grid md:grid-cols-3 gap-4">
+                                    <div className="grid md:grid-cols-3 gap-4 mt-2">
                                         <div>
                                             <label className="label-helper">Aumento %</label>
                                             <input className="input-dark text-green-400 font-bold" value={paritaria.porcentajeAumento} onChange={(e) => updateField(`paritarias.${uuid}.porcentajeAumento`, e.target.value)} />

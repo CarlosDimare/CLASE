@@ -1,3 +1,4 @@
+
 export interface ComisionMiembro {
   nombre: string;
   cargo: string;
@@ -15,7 +16,7 @@ export interface AccionGremial {
   fecha: string; // YYYY-MM-DD
   lugar: string;
   fuente: string; // Link obligatorio
-  estado: "realizada" | "programada";
+  // estado eliminado: se calcula dinámicamente según la fecha
   descripcion: string;
 }
 
@@ -42,6 +43,7 @@ export interface NewsItem {
   pubDate: string;
   source: string;
   description: string;
+  content?: string;
 }
 
 export type ViewMode = 'public' | 'editor';

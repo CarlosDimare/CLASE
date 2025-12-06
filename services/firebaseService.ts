@@ -7,6 +7,8 @@ const AUTH = `?auth=${SECRET}`;
 // Helper to ensure data integrity coming back from Firebase (which might drop empty arrays/objects)
 const sanitizeUnionData = (u: any): SindicatoData => ({
     ...u,
+    nombre: u.nombre || 'Sindicato Sin Nombre',
+    slug: u.slug || 'sin-id',
     comisionDirectiva: u.comisionDirectiva || [],
     acciones: u.acciones || {},
     paritarias: u.paritarias || {},

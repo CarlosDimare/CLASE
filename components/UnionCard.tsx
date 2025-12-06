@@ -10,15 +10,19 @@ interface UnionCardProps {
 const UnionCard: React.FC<UnionCardProps> = ({ data, onSelect }) => {
   const accionesArray = Object.values((data.acciones || {}) as Record<string, AccionGremial>);
   
+  // Helper: Upcoming = Date >= Today
+  const today = new Date().toISOString().split('T')[0];
+  const isUpcoming = (dateStr: string) => dateStr >= today;
+
   // Find top 2 upcoming actions
   const upcomingActions = accionesArray
-    .filter(a => a.estado === 'programada')
+    .filter(a => isUpcoming(a.fecha))
     .sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
     .slice(0, 2);
 
   // Find top 2 recent past actions
   const pastActions = accionesArray
-    .filter(a => a.estado !== 'programada')
+    .filter(a => !isUpcoming(a.fecha))
     .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
     .slice(0, 2);
 

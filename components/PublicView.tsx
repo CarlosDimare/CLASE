@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { SindicatoData, AccionGremial, AcuerdoParitario, NewsItem } from '../types';
 import UnionCard from './UnionCard';
 import NewsFeed from './NewsFeed';
-import { ChevronLeft, ExternalLink, FileText, Users, Megaphone, Calendar, ShieldAlert, Users2, AlertOctagon, Clock, LayoutGrid, Radio, CheckCircle2 } from 'lucide-react';
+import { ChevronLeft, ExternalLink, FileText, Users, Megaphone, Calendar, ShieldAlert, Users2, AlertOctagon, Clock, LayoutGrid, Radio, CheckCircle2, CloudSun } from 'lucide-react';
 
 interface PublicViewProps {
   unions: SindicatoData[];
@@ -15,16 +15,56 @@ interface PublicViewProps {
 type MainTab = 'monitor' | 'sindicatos' | 'noticias';
 type DetailTab = 'agenda' | 'historial' | 'paritarias';
 
+// Header Widget Component (Internal)
+const HeaderWidget = () => {
+    const [dateTime, setDateTime] = useState(new Date());
+    const [weather, setWeather] = useState<{temp: number | null, city: string | null}>({ temp: null, city: null });
+
+    React.useEffect(() => {
+        const timer = setInterval(() => setDateTime(new Date()), 1000);
+        const fetchWeather = async () => {
+            try {
+                const geoRes = await fetch('https://get.geojs.io/v1/ip/geo.json');
+                const geoData = await geoRes.json();
+                if (geoData.latitude && geoData.longitude) {
+                    const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${geoData.latitude}&longitude=${geoData.longitude}&current=temperature_2m`);
+                    const weatherData = await weatherRes.json();
+                    setWeather({ temp: Math.round(weatherData.current.temperature_2m), city: geoData.city });
+                }
+            } catch (e) { console.error("Weather error", e); }
+        };
+        fetchWeather();
+        return () => clearInterval(timer);
+    }, []);
+
+    const dateStr = dateTime.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short' }).toUpperCase();
+    const timeStr = dateTime.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+
+    return (
+        <div className="flex flex-col items-end text-right">
+            <div className="flex items-center gap-3 text-white font-bold text-sm tracking-widest font-mono">
+                <span>{dateStr}</span>
+                <span className="text-red-500">{timeStr}</span>
+            </div>
+            {weather.temp !== null && (
+                <div className="flex items-center gap-1 text-xs text-neutral-500 font-mono uppercase">
+                    <CloudSun className="w-3 h-3" />
+                    <span>{weather.city || 'LOCAL'}: {weather.temp}°C</span>
+                </div>
+            )}
+        </div>
+    );
+}
+
 const PublicView: React.FC<PublicViewProps> = ({ unions, news, newsLoading, newsError, onRefreshNews }) => {
   const [selectedUnion, setSelectedUnion] = useState<SindicatoData | null>(null);
-  
-  // Main Navigation State
   const [activeMainTab, setActiveMainTab] = useState<MainTab>('monitor');
-  
-  // Detail Navigation State
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTab>('agenda');
 
-  // Helper to get aggregated actions
+  // --- Date Logic ---
+  const today = new Date().toISOString().split('T')[0];
+  const isUpcoming = (dateStr: string) => dateStr >= today;
+
   const getAllActions = () => {
     const all: Array<{ action: AccionGremial; unionName: string; unionSlug: string; uuid: string }> = [];
     unions.forEach(union => {
@@ -39,24 +79,15 @@ const PublicView: React.FC<PublicViewProps> = ({ unions, news, newsLoading, news
   const allActions = getAllActions();
 
   // Filter Global Lists
-  const currentDate = new Date('2025-12-05T19:22:20.000Z'); // Usar fecha actual como referencia
-  
   const upcomingActions = allActions
-    .filter(item => {
-      const actionDate = new Date(item.action.fecha);
-      return item.action.estado === 'programada' && actionDate >= currentDate;
-    })
+    .filter(item => isUpcoming(item.action.fecha))
     .sort((a, b) => new Date(a.action.fecha).getTime() - new Date(b.action.fecha).getTime());
 
   const pastActions = allActions
-    .filter(item => {
-      const actionDate = new Date(item.action.fecha);
-      return item.action.estado !== 'programada' || actionDate < currentDate;
-    })
+    .filter(item => !isUpcoming(item.action.fecha))
     .sort((a, b) => new Date(b.action.fecha).getTime() - new Date(a.action.fecha).getTime())
-    .slice(0, 20); // Limit display for past actions
+    .slice(0, 20);
 
-  // Helper to render icon based on action type
   const getActionIcon = (type: string) => {
     switch (type) {
         case 'medida-fuerza': return <ShieldAlert className="w-5 h-5" />;
@@ -66,8 +97,8 @@ const PublicView: React.FC<PublicViewProps> = ({ unions, news, newsLoading, news
     }
   }
 
-  // Helper for type label
   const getTypeLabel = (type: string) => {
+    if (!type) return 'ACCIÓN';
     const labels: Record<string, string> = {
         'medida-fuerza': 'MEDIDA DE FUERZA',
         'movilizacion': 'MOVILIZACIÓN',
@@ -83,13 +114,13 @@ const PublicView: React.FC<PublicViewProps> = ({ unions, news, newsLoading, news
   if (selectedUnion) {
     const accionesMap = (selectedUnion.acciones || {}) as Record<string, AccionGremial>;
     
-    // Filter actions for the specific tabs
+    // Filter actions by Date
     const agendaActions = Object.entries(accionesMap)
-      .filter(([, a]) => a.estado === 'programada')
+      .filter(([, a]) => isUpcoming(a.fecha))
       .sort(([, a], [, b]) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime());
 
     const historialActions = Object.entries(accionesMap)
-      .filter(([, a]) => a.estado !== 'programada')
+      .filter(([, a]) => !isUpcoming(a.fecha))
       .sort(([, a], [, b]) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
     return (
@@ -123,12 +154,11 @@ const PublicView: React.FC<PublicViewProps> = ({ unions, news, newsLoading, news
             </div>
             <div className="bg-neutral-950 px-4 py-2 border border-neutral-800">
                <span className="text-xs text-neutral-500 uppercase block text-center mb-1">Identificador</span>
-               <span className="text-xl font-black text-white tracking-widest">{selectedUnion.slug.toUpperCase()}</span>
+               <span className="text-xl font-black text-white tracking-widest">{selectedUnion.slug ? selectedUnion.slug.toUpperCase() : 'SIN ID'}</span>
             </div>
           </div>
         </div>
 
-        {/* 3 SECCIONES DEL INFORME: AGENDA, HISTORIAL, PARITARIAS */}
         <div className="flex border-b border-neutral-800 mb-8 overflow-x-auto scrollbar-hide">
           <button 
             onClick={() => setActiveDetailTab('agenda')}
@@ -278,6 +308,12 @@ const PublicView: React.FC<PublicViewProps> = ({ unions, news, newsLoading, news
   // --- RENDER MAIN DASHBOARD VIEW ---
   return (
     <div className="container mx-auto px-4 py-8">
+      {/* Inserted Header Widget in Dashboard if needed, but usually in Nav */}
+      <div className="md:hidden mb-6 flex justify-end">
+          <HeaderWidget />
+      </div>
+
+      <div className="mb-4"></div>
 
       {/* 3 MAIN SECTIONS NAV */}
       <div className="flex flex-col md:flex-row gap-4 mb-10 border-b border-neutral-800 pb-1">
